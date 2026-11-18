@@ -3,7 +3,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from src.analytics import REQUIRED_COLUMNS, add_metrics, build_daily_digest, build_idea_prompt, load_posts
+from src.analytics import add_metrics, build_daily_digest, build_idea_prompt, load_posts
 
 st.set_page_config(page_title="Social Content Trend Tracker", page_icon="📈", layout="wide")
 st.title("📈 Social Content Trend & Idea Tracker")
@@ -11,16 +11,28 @@ st.caption("A structured research desk for public Douyin and Xiaohongshu content
 st.info("This MVP does not scrape platforms or fetch live trends. Import observations you have collected manually from public content you are allowed to review.")
 
 uploaded = st.file_uploader("Upload research CSV", type=["csv"])
-try:
-    raw = pd.read_csv(uploaded) if uploaded is not None else pd.read_csv("data/sample_posts.csv")
-    data, errors = load_posts(raw)
-except Exception as exc:
-    st.error(f"Could not read the dataset: {exc}")
-    st.stop()
-
-if errors:
-    st.error("CSV validation issues: " + "; ".join(errors))
-    st.stop()
+if uploaded is not None:
+    try:
+        imported = pd.read_csv(uploaded)
+        data, errors = load_posts(imported)
+        if errors:
+            st.error("CSV validation issues: " + "; ".join(errors))
+            st.stop()
+        st.session_state["posts_data"] = data
+    except Exception as exc:
+        st.error(f"Could not read the dataset: {exc}")
+        st.stop()
+elif "posts_data" not in st.session_state:
+    try:
+        sample = pd.read_csv("data/sample_posts.csv")
+        data, errors = load_posts(sample)
+        if errors:
+            st.error("; ".join(errors))
+            st.stop()
+        st.session_state["posts_data"] = data
+    except Exception as exc:
+        st.error(f"Could not load sample data: {exc}")
+        st.stop()
 
 with st.expander("Add a post observation manually"):
     with st.form("manual_post"):
@@ -44,17 +56,20 @@ with st.expander("Add a post observation manually"):
         if submitted:
             new_row = pd.DataFrame([{
                 "platform": platform, "post_date": str(post_date), "title": title,
-                "niche": niche, "views": views, "likes": likes, "comments": comments,
-                "shares": shares, "saves": saves, "creator": "", "url": url,
-                "hook": hook, "format": fmt, "topic": niche, "notes": notes,
+                "niche": niche or "Uncategorized", "views": views, "likes": likes,
+                "comments": comments, "shares": shares, "saves": saves,
+                "creator": "", "url": url, "hook": hook, "format": fmt,
+                "topic": niche or "Uncategorized", "notes": notes,
             }])
-            raw = pd.concat([raw, new_row], ignore_index=True)
-            data, errors = load_posts(raw)
+            combined = pd.concat([st.session_state["posts_data"], new_row], ignore_index=True)
+            updated, errors = load_posts(combined)
             if errors:
                 st.error("; ".join(errors))
             else:
-                st.success("Observation added to this session. Export the data to keep it.")
+                st.session_state["posts_data"] = updated
+                st.success("Observation added. It will remain available during this browser session; download the CSV to keep it permanently.")
 
+data = st.session_state["posts_data"].copy()
 if data.empty:
     st.warning("No valid observations yet. Upload a CSV or add a post above.")
     st.stop()
